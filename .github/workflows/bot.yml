@@ -1,4 +1,4 @@
-name: trading-ai-bot
+name: saas-final
 
 on:
   workflow_dispatch:
