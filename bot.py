@@ -1,406 +1,228 @@
 import asyncio
 import re
-import random
 import time
 import numpy as np
 
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import (
-    InlineKeyboardMarkup,
-    InlineKeyboardButton
-)
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# 💎 TOKEN
+# 🔑 TOKEN
 TOKEN = "8910895596:AAG5KfMwTUGvTmFYUGhQhf52b0tQb3NENug"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# 📊 память коэффициентов
+# 💾 MEMORY
 history = []
-
-# ⏱ память времени
 timestamps = []
+MEMORY_LIMIT = 1200
+
+# 🌍 DEFAULT LANGUAGE
+user_lang = {}
+
+# ─────────────────────────────
+# 🌍 TEXT SYSTEM
+# ─────────────────────────────
+TEXTS = {
+    "start": {
+        "ru": "💎 ТРЕЙДИНГ AI ТЕРМИНАЛ\n━━━━━━━━━━\n🧠 AI: АКТИВЕН\n📊 СИГНАЛЫ: ГОТОВЫ\n📥 Отправь коэффициенты",
+        "en": "💎 TRADING AI TERMINAL\n━━━━━━━━━━\n🧠 AI: ACTIVE\n📊 SIGNALS: READY\n📥 Send coefficients"
+    },
+    "loading": {
+        "ru": "⚡ ИНИЦИАЛИЗАЦИЯ...",
+        "en": "⚡ INITIALIZING..."
+    },
+    "no_data": {
+        "ru": "📥 Нужно минимум 5 значений",
+        "en": "📥 Minimum 5 values required"
+    },
+    "invalid": {
+        "ru": "⚠️ Введи числа",
+        "en": "⚠️ Send numbers"
+    }
+}
 
 # 💎 MENU
 menu = InlineKeyboardMarkup(
     inline_keyboard=[
-
+        [InlineKeyboardButton(text="⚡ SIGNAL", callback_data="sig")],
+        [InlineKeyboardButton(text="📊 DASHBOARD", callback_data="stats")],
+        [InlineKeyboardButton(text="💎 SYSTEM", callback_data="status")],
         [
-            InlineKeyboardButton(
-                text="⚡ SIGNAL",
-                callback_data="signal"
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                text="📊 ANALYTICS",
-                callback_data="stats"
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                text="💎 STATUS",
-                callback_data="status"
-            )
+            InlineKeyboardButton(text="🇷🇺 RU", callback_data="ru"),
+            InlineKeyboardButton(text="🇬🇧 EN", callback_data="en")
         ]
     ]
 )
 
-# 🎬 АНИМАЦИИ
-loading_steps = [
-
-    "⚡ Сканирование рынка...",
-    "🧠 Анализ паттернов...",
-    "📊 Проверка волатильности...",
-    "💎 Поиск лучшего сигнала...",
-    "📡 AI анализирует историю..."
-]
-
-# 💬 УМНЫЕ ФРАЗЫ
-reasons_growth = [
-
-    "рынок долго внизу\nвероятен импульс",
-
-    "наблюдается накопление\nвозможен рост",
-
-    "серия низких значений\nрынок готовится к движению",
-
-    "волатильность снижается\nвозможен выход вверх"
-]
-
-reasons_danger = [
-
-    "слишком много высоких\nрынок нестабилен",
-
-    "замечен перегрев\nлучше пропустить",
-
-    "хаотичные движения\nсигнал слабый"
-]
-
-neutral_texts = [
-
-    "рынок в нейтральной фазе",
-
-    "сильного преимущества пока нет",
-
-    "ожидается формирование нового паттерна"
-]
-
-# 🎬 LOADING
-async def loading(message):
-
-    msg = await message.answer(
-        random.choice(loading_steps)
-    )
-
-    for step in loading_steps[1:]:
-
-        await asyncio.sleep(0.6)
-
-        await msg.edit_text(step)
-
-    return msg
-
-# 🧠 AI ENGINE
-def analyze():
-
-    # ⏱ чистка памяти старше 20 минут
+# 🧹 CLEAN MEMORY
+def clean():
     now = time.time()
-
-    while timestamps and now - timestamps[0] > 1200:
-
+    while timestamps and now - timestamps[0] > MEMORY_LIMIT:
         timestamps.pop(0)
         history.pop(0)
 
-    # 📉 мало данных
+# 📥 PARSE
+def parse(text):
+    return [float(x) for x in re.findall(r"\d+\.?\d*", text)]
+
+# 🌍 GET LANG
+def lang(user_id):
+    return user_lang.get(user_id, "ru")
+
+# 🧠 AI ENGINE (NO RANDOM)
+def analyze():
+    clean()
+
     if len(history) < 5:
+        return "📥 Need more data"
 
-        return (
+    data = history[-30:]
 
-            "⏳ Недостаточно данных\n"
-            "━━━━━━━━━━\n\n"
+    avg = np.mean(data)
+    std = np.std(data)
 
-            "📥 Нужно минимум 5 коэффициентов\n"
-            "🧠 AI собирает историю"
-        )
+    bullish = sum(1 for x in data if x > avg)
+    bearish = sum(1 for x in data if x < avg)
 
-    # 📊 последние коэффициенты
-    last = history[-20:]
-
-    avg = np.mean(last)
-    std = np.std(last)
-
-    # 🔥 low серия
-    low_streak = 0
-
-    for x in reversed(last):
-
+    low = 0
+    for x in reversed(data):
         if x < 1.5:
-            low_streak += 1
+            low += 1
         else:
             break
 
-    # 📈 high серия
-    high_streak = 0
-
-    for x in reversed(last):
-
+    high = 0
+    for x in reversed(data):
         if x > 3:
-            high_streak += 1
+            high += 1
         else:
             break
 
-    # 📊 volatility
-    volatility = round(std, 2)
-
-    # 🎯 SCORE
     score = 50
-
-    if low_streak >= 2:
-        score += 10
-
-    if low_streak >= 4:
-        score += 15
-
-    if low_streak >= 6:
-        score += 20
+    score += low * 8
+    score -= high * 10
+    score += (bullish - bearish) * 2
 
     if avg < 2:
         score += 10
 
-    if high_streak >= 3:
-        score -= 25
+    if std < 1:
+        score += 10
+    elif std > 2:
+        score -= 20
 
-    if volatility > 2:
-        score -= 15
-
-    score = max(1, min(99, score))
-
-    # ⚠️ risk
+    score = max(1, min(99, int(score)))
     risk = 100 - score
 
-    # 📊 volatility text
-    vol_text = "низкая"
+    if score >= 80:
+        level = "💎 ELITE SIGNAL"
+        zone = "x3 – x5"
+        reason = "strong accumulation + bullish pressure"
+    elif score >= 60:
+        level = "⚡ PRO SIGNAL"
+        zone = "x2 – x3"
+        reason = "trend forming"
+    elif score >= 45:
+        level = "⚠️ WARNING"
+        zone = "x1.3 – x2"
+        reason = "uncertain structure"
+    else:
+        level = "🚫 NO TRADE"
+        zone = "—"
+        reason = "market chaos"
 
-    if volatility > 1:
-        vol_text = "средняя"
+    return f"""
+{level}
+━━━━━━━━━━
 
-    if volatility > 2:
-        vol_text = "высокая"
+📊 AVG: {round(avg,2)}
+📉 VOL: {round(std,2)}
+🔥 BULL: {bullish}
+❄ BEAR: {bearish}
 
-    # 📈 market mode
-    market = "Growth Setup"
+🎯 SCORE: {score}%
+⚠ RISK: {risk}%
 
-    if high_streak >= 3:
-        market = "Danger Zone"
+━━━━━━━━━━
+⚡ ZONE: {zone}
 
-    if score >= 75:
+🧠 AI:
+{reason}
+""".strip()
 
-        return (
+# 🎬 LOADING
+async def loading(msg, l):
+    steps = {
+        "ru": ["⚡ Запуск...", "🧠 Анализ...", "📊 Расчёт..."],
+        "en": ["⚡ Starting...", "🧠 Analyzing...", "📊 Calculating..."]
+    }
 
-            "💎 ELITE SIGNAL\n"
-            "━━━━━━━━━━\n\n"
+    m = await msg.answer(TEXTS["loading"][l])
 
-            f"📈 Тип: {market}\n"
-            f"🔥 Низких подряд: {low_streak}\n"
-            f"📊 Волатильность: {vol_text}\n"
-            f"🎯 Сила сигнала: {score}%\n\n"
+    for s in steps[l]:
+        await asyncio.sleep(0.6)
+        await m.edit_text(s)
 
-            "⚡ Рекомендуемая зона:\n"
-            "x2 – x3.5\n\n"
-
-            "🧠 Причина:\n"
-            f"{random.choice(reasons_growth)}"
-        )
-
-    if score >= 55:
-
-        return (
-
-            "⚡ PRO SIGNAL\n"
-            "━━━━━━━━━━\n\n"
-
-            f"📈 Тип: {market}\n"
-            f"📊 Волатильность: {vol_text}\n"
-            f"🎯 Сила сигнала: {score}%\n\n"
-
-            "⚠️ Осторожный вход\n"
-            "📈 Возможен рост\n\n"
-
-            "🧠 Анализ:\n"
-            f"{random.choice(neutral_texts)}"
-        )
-
-    return (
-
-        "⚠️ NO SIGNAL\n"
-        "━━━━━━━━━━\n\n"
-
-        f"📊 Волатильность: {vol_text}\n"
-        f"⚠️ Риск: {risk}%\n\n"
-
-        "🚫 AI не рекомендует вход\n\n"
-
-        "🧠 Причина:\n"
-        f"{random.choice(reasons_danger)}"
-    )
-
-# 📥 ПАРСЕР
-def parse_nums(text):
-
-    return [
-
-        float(x)
-
-        for x in re.findall(
-            r"\d+\.?\d*",
-            text
-        )
-    ]
+    return m
 
 # 🚀 START
 @dp.message()
-async def messages(message: types.Message):
+async def handler(message: types.Message):
 
-    # 💎 START
+    uid = message.from_user.id
+    l = lang(uid)
+
     if message.text == "/start":
-
-        await message.answer(
-
-            "💎 ULTRA AI ANALYZER\n"
-            "━━━━━━━━━━\n\n"
-
-            "🧠 AI анализ паттернов\n"
-            "📊 Smart volatility\n"
-            "⚡ Auto signal logic\n"
-            "💾 Память коэффициентов\n\n"
-
-            "📥 Отправляй коэффициенты\n"
-            "Можно по одному",
-
-            reply_markup=menu
-        )
-
+        await message.answer(TEXTS["start"][l], reply_markup=menu)
         return
 
-    # 📊 INPUT
-    nums = parse_nums(message.text)
+    nums = parse(message.text)
 
     if nums:
-
         for n in nums:
-
             history.append(n)
             timestamps.append(time.time())
 
-        # 📦 LIMIT
-        if len(history) > 100:
+        await loading(message, l)
 
-            history.pop(0)
-            timestamps.pop(0)
+        await message.answer(analyze(), reply_markup=menu)
 
-        # 🎬 animation
-        load = await loading(message)
-
-        await asyncio.sleep(0.5)
-
-        # 💎 RESULT
-        await load.edit_text(
-
-            analyze(),
-
-            reply_markup=menu
-        )
-
-        return
-
-    # ❌ invalid
-    await message.answer(
-
-        "⚠️ Неверный формат\n\n"
-
-        "📥 Пример:\n"
-        "1.2\n"
-        "или\n"
-        "1.2 1.5 2.4"
-    )
+    else:
+        await message.answer(TEXTS["invalid"][l])
 
 # 🎛 CALLBACKS
 @dp.callback_query()
-async def callbacks(call: types.CallbackQuery):
+async def cb(call: types.CallbackQuery):
 
-    # ⚡ SIGNAL
-    if call.data == "signal":
+    uid = call.from_user.id
+    l = lang(uid)
 
-        msg = await call.message.answer(
+    if call.data in ["ru", "en"]:
+        user_lang[uid] = call.data
+        await call.message.answer("🌍 OK")
+        return
 
-            "⚡ AI генерирует сигнал..."
-        )
+    if call.data == "sig":
+        await call.message.answer(analyze())
 
-        await asyncio.sleep(1)
-
-        await msg.edit_text(
-
-            analyze(),
-
-            reply_markup=menu
-        )
-
-    # 📊 ANALYTICS
     elif call.data == "stats":
-
-        total = len(history)
-
-        avg = round(
-            np.mean(history),
-            2
-        ) if history else 0
-
-        last = (
-            history[-1]
-            if history else "нет"
-        )
-
         await call.message.answer(
-
-            "📊 ULTRA ANALYTICS\n"
-            "━━━━━━━━━━\n\n"
-
-            f"📈 Коэффициентов: {total}\n"
-            f"📊 Средний коэффициент: {avg}\n"
-            f"📉 Последний коэффициент: {last}\n\n"
-
-            "🧠 AI память активна\n"
-            "⏱ История хранится 20 минут"
+            f"📊 DATA: {len(history)}\n"
+            f"📈 LAST: {history[-1] if history else 'NONE'}"
         )
 
-    # 💎 STATUS
     elif call.data == "status":
-
         await call.message.answer(
-
-            "💎 SYSTEM STATUS\n"
-            "━━━━━━━━━━\n\n"
-
-            "🟢 SYSTEM ONLINE\n"
-            "⚡ AI ENGINE ACTIVE\n"
-            "📊 VOLATILITY ONLINE\n"
-            "🧠 MEMORY SYSTEM ACTIVE\n"
-            "📡 AUTO ANALYZER READY\n\n"
-
-            "🔥 ULTRA VERSION"
+            "🟢 ONLINE\n⚡ AI ACTIVE\n💎 SYSTEM OK"
         )
 
     await call.answer()
 
 # 🚀 RUN
 async def main():
-
-    print("💎 ULTRA AI BOT STARTED")
-
+    print("💎 GLOBAL TRADING AI STARTED")
     await dp.start_polling(bot)
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
